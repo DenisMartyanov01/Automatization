@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import  Column, Integer, String, DateTime
+from sqlalchemy import  Column, Integer, String, DateTime, Boolean
  
 SQLALCHEMY_DATABASE_URL = "postgresql://postgres:123@localhost:5432/MainBD"
 
@@ -25,7 +25,7 @@ class Event(Base):
     date = Column(DateTime)
     title = Column(String)
     text = Column(String)
-    is_approved = Column(bool)
+    is_approved = Column(Boolean)
 
 class Comment(Base):
     __tablename__ = "Comment"
