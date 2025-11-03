@@ -7,7 +7,6 @@ RUN apt-get update && \
 
 WORKDIR /backend
 
-COPY requirements.txt .
 
 RUN pip install --upgrade pip
 RUN pip install fastapi uvicorn
