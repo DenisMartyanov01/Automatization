@@ -17,7 +17,7 @@ services:
       - ./BD:/app/BD
       - ./backend:/app/backend 
     command: >
-      sh -c "python BD/init_database.py && uvicorn backend/main:app --host 0.0.0.0 --port 8000"
+      sh -c "python BD/init_database.py && cd backend && uvicorn main:app --host 0.0.0.0 --port 8000"
 
   postgres:
     image: postgres:17-alpine
