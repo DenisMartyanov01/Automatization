@@ -22,7 +22,7 @@ sql_files = ['main.sql', 'DataUsers.sql', 'DataEvent.sql', 'DataComment.sql', 'D
 for sql_file in sql_files:
     try:
         # Формируем полный путь относительно директории скрипта
-        file_path = current_dir / 'BD' / 'SQL' / sql_file
+        file_path = f'{current_dir}../BD/SQL/sql_file'
         print(f'📁 Executing {file_path}...')
         
         with open(file_path, 'r', encoding='utf-8') as f:
