@@ -16,7 +16,7 @@ sql_files = ['main.sql', 'DataUsers.sql', 'DataEvent.sql', 'DataComment.sql', 'D
 
 for sql_file in sql_files:
     try:
-        file_path = f'/SQL/{sql_file}'
+        file_path = f'BD/SQL/{sql_file}'
         print(f'📁 Executing {file_path}...')
         with open(file_path, 'r') as f:
             sql = f.read()
