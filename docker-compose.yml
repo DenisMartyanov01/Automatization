@@ -1,0 +1,41 @@
+name: auto
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    working_dir: /backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SQLALCHEMY_DATABASE_URL: "postgresql://postgres:123@postgres:5432/MainBD"
+    volumes:
+      - ./sql:/sql
+      - ./backend/alembic.ini:/backend/alembic.ini
+      - ./backend/app/alembic:/backend/app/alembic
+    command: >
+      sh -c "python init_database.py && uvicorn main:app --host 0.0.0.0 --port 8000"
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 123
+      POSTGRES_DB: MainBD
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./sql:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d MainBD"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  db_data:
