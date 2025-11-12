@@ -1,24 +1,6 @@
 name: auto
 
 services:
-  backend:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    working_dir: /app
-    ports:
-      - "8000:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      SQLALCHEMY_DATABASE_URL: "postgresql://postgres:123@postgres:5432/MainBD"
-    volumes:
-      - ./BD:/app/BD
-      - ./backend:/app/backend 
-    command: >
-      sh -c "python BD/init_database.py && cd backend && uvicorn main:app --host 0.0.0.0 --port 8000"
-
   postgres:
     image: postgres:17-alpine
     environment:
@@ -26,15 +8,39 @@ services:
       POSTGRES_PASSWORD: 123
       POSTGRES_DB: MainBD
     ports:
-      - "5432:5432"
+      - "5433:5432"  # ⬅️ ИЗМЕНИТЕ 5432 на 5433
     volumes:
       - db_data:/var/lib/postgresql/data
-      #- ./sql:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d MainBD"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - app-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://postgres:123@postgres:5432/MainBD"  # ⬅️ ВНУТРИ контейнера порт остается 5432
+    volumes:
+      - ./backend:/app
+    working_dir: /app
+    command: >
+      sh -c "python init_database.py && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+    networks:
+      - app-network
 
 volumes:
   db_data:
+
+networks:
+  app-network:
+    driver: bridge
