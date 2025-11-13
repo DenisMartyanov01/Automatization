@@ -4,7 +4,6 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
-import { mockIncidents, mockPersons } from '../lib/mockData';
 import { api } from '../lib/api';
 import type { Incident, Person } from '../lib/types';
 
@@ -12,26 +11,48 @@ interface PublicDashboardProps {
   onOpenLogin: () => void;
 }
 
+// Тип для инцидента с включенной информацией о людях
+interface IncidentWithPersons extends Incident {
+  involvedPersons?: Person[];
+}
+interface Person {
+  id: string;
+  registration_number: string;
+  name: string;
+  address: string;
+  role: string;
+  phone: string;
+  email: string;
+}
+
+interface Incident {
+  id: string;
+  registration_number: string;
+  type: string;
+  description: string;
+  location: string;
+  date: string;
+  severity: string;
+  involvedPersons: Person[];
+}
 export function PublicDashboard({ onOpenLogin }: PublicDashboardProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedIncident, setExpandedIncident] = useState<string | null>(null);
-  const [incidents, setIncidents] = useState<Incident[]>(mockIncidents);
-  const [persons, setPersons] = useState<Person[]>(mockPersons);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Fetch public incidents on mount
+  // Fetch all incidents on mount
   useEffect(() => {
     const fetchPublicData = async () => {
       setIsLoading(true);
       try {
-        // Try to fetch from API
+        // Используем правильный endpoint для публичных данных
         const publicIncidents = await api.incidents.getPublic();
-        // Note: Public API returns limited data, so we need to fetch full incidents
-        // This is a workaround - in real implementation, backend should handle this
         console.log('Fetched public incidents:', publicIncidents);
+        setIncidents(publicIncidents);
       } catch (error) {
         console.error('Failed to fetch public data:', error);
-        // Fallback to mock data (already set in state)
+        setIncidents([]);
       } finally {
         setIsLoading(false);
       }
@@ -44,10 +65,6 @@ export function PublicDashboard({ onOpenLogin }: PublicDashboardProps) {
     incident.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
     incident.location.toLowerCase().includes(searchTerm.toLowerCase())
   );
-
-  const getPersonInfo = (personId: string) => {
-    return persons.find(p => p.id === personId);
-  };
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
@@ -110,82 +127,84 @@ export function PublicDashboard({ onOpenLogin }: PublicDashboardProps) {
           </p>
         </div>
 
-        {/* Incidents List */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-gray-900">Recent Incidents</h2>
-            <span className="text-gray-500">{filteredIncidents.length} total</span>
+        {isLoading ? (
+          <div className="flex justify-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
           </div>
-          
-          {filteredIncidents.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <p className="text-gray-500">No incidents found</p>
-              </CardContent>
-            </Card>
-          ) : (
-            filteredIncidents.map((incident) => {
-              const isExpanded = expandedIncident === incident.id;
-              return (
-                <Card key={incident.id} className="overflow-hidden">
-                  <div
-                    onClick={() => toggleIncident(incident.id)}
-                    className="cursor-pointer active:bg-gray-50"
-                  >
-                    <CardHeader className="pb-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${getSeverityColor(incident.severity)}`} />
-                            <CardTitle className="text-gray-900 truncate">
-                              {incident.type}
-                            </CardTitle>
+        ) : (
+          /* Incidents List */
+          <div className="space-y-3">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-gray-900">Recent Incidents</h2>
+              <span className="text-gray-500">{filteredIncidents.length} total</span>
+            </div>
+            
+            {filteredIncidents.length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <p className="text-gray-500">No incidents found</p>
+                </CardContent>
+              </Card>
+            ) : (
+              filteredIncidents.map((incident) => {
+                const isExpanded = expandedIncident === incident.id;
+                return (
+                  <Card key={incident.id} className="overflow-hidden">
+                    <div
+                      onClick={() => toggleIncident(incident.id)}
+                      className="cursor-pointer active:bg-gray-50"
+                    >
+                      <CardHeader className="pb-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <div className={`w-2 h-2 rounded-full flex-shrink-0 ${getSeverityColor(incident.severity)}`} />
+                              <CardTitle className="text-gray-900 truncate">
+                                {incident.type}
+                              </CardTitle>
+                            </div>
+                            <CardDescription className="flex items-center gap-1">
+                              <Calendar className="w-3 h-3 flex-shrink-0" />
+                              <span className="truncate">
+                                {new Date(incident.date).toLocaleDateString('en-US', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </span>
+                            </CardDescription>
                           </div>
-                          <CardDescription className="flex items-center gap-1">
-                            <Calendar className="w-3 h-3 flex-shrink-0" />
-                            <span className="truncate">
-                              {new Date(incident.date).toLocaleDateString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
-                            </span>
-                          </CardDescription>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <Badge variant="outline" className="text-xs">
+                              #{incident.registrationNumber}
+                            </Badge>
+                            {isExpanded ? (
+                              <ChevronUp className="w-5 h-5 text-gray-400" />
+                            ) : (
+                              <ChevronDown className="w-5 h-5 text-gray-400" />
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <Badge variant="outline" className="text-xs">
-                            #{incident.registrationNumber}
-                          </Badge>
-                          {isExpanded ? (
-                            <ChevronUp className="w-5 h-5 text-gray-400" />
-                          ) : (
-                            <ChevronDown className="w-5 h-5 text-gray-400" />
-                          )}
-                        </div>
-                      </div>
-                    </CardHeader>
+                      </CardHeader>
 
-                    {isExpanded && (
-                      <CardContent className="pt-0 space-y-3">
-                        <div className="flex items-start gap-2 text-gray-700">
-                          <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                          <span>{incident.location}</span>
-                        </div>
+                      {isExpanded && (
+                        <CardContent className="pt-0 space-y-3">
+                          <div className="flex items-start gap-2 text-gray-700">
+                            <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                            <span>{incident.location}</span>
+                          </div>
 
-                        <div>
-                          <p className="text-gray-900 mb-1">Description:</p>
-                          <p className="text-gray-600">{incident.description}</p>
-                        </div>
+                          <div>
+                            <p className="text-gray-900 mb-1">Description:</p>
+                            <p className="text-gray-600">{incident.description}</p>
+                          </div>
 
-                        {incident.involvedPersons.length > 0 && (
-                          <div className="border-t pt-3 mt-3">
-                            <p className="text-gray-900 mb-2">Involved Persons:</p>
-                            <div className="space-y-2">
-                              {incident.involvedPersons.map((personId) => {
-                                const person = getPersonInfo(personId);
-                                if (!person) return null;
-                                return (
+                          {incident.involvedPersons && incident.involvedPersons.length > 0 && (
+                            <div className="border-t pt-3 mt-3">
+                              <p className="text-gray-900 mb-2">Involved Persons:</p>
+                              <div className="space-y-2">
+                                {incident.involvedPersons.map((person) => (
                                   <div
                                     key={person.id}
                                     className="bg-gray-50 rounded-lg p-3"
@@ -202,7 +221,7 @@ export function PublicDashboard({ onOpenLogin }: PublicDashboardProps) {
                                           </Badge>
                                         </div>
                                         <p className="text-gray-600 truncate">
-                                          Reg. #{person.registrationNumber}
+                                          Reg. #{person.registration_number}  {/* Исправлено с registrationNumber */}
                                         </p>
                                         <p className="text-gray-600 flex items-start gap-1 mt-1">
                                           <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0" />
@@ -211,19 +230,19 @@ export function PublicDashboard({ onOpenLogin }: PublicDashboardProps) {
                                       </div>
                                     </div>
                                   </div>
-                                );
-                              })}
+                                ))}
+                              </div>
                             </div>
-                          </div>
-                        )}
-                      </CardContent>
-                    )}
-                  </div>
-                </Card>
-              );
-            })
-          )}
-        </div>
+                          )}
+                        </CardContent>
+                      )}
+                    </div>
+                  </Card>
+                );
+              })
+            )}
+          </div>
+        )}
       </main>
     </div>
   );

@@ -1,24 +1,26 @@
+// ЗАМЕНИТЕ ВЕСЬ СОДЕРЖИМОЕ ФАЙЛА НА:
+
 // TypeScript types for API data structures
 
 export interface Person {
   id: string;
-  registrationNumber: string;
+  registration_number: string;
   name: string;
   address: string;
-  role: 'suspect' | 'witness' | 'victim';
+  role: string;
   phone: string;
   email: string;
 }
 
 export interface Incident {
   id: string;
-  registrationNumber: string;
+  registration_number: string;
   type: string;
   description: string;
   location: string;
   date: string;
   severity: 'low' | 'medium' | 'high';
-  involvedPersons: string[];
+  involvedPersons: string[]; // Измените с Person[] на string[]
 }
 
 export interface Statistics {
@@ -35,14 +37,19 @@ export interface LoginCredentials {
 
 export interface AuthResponse {
   success: boolean;
-  token?: string;
+  user?: {
+    id: string;
+    username: string;
+  };
   message?: string;
+  token?: string;  // Убедитесь, что это поле есть
 }
 
-export interface PublicIncident {
-  registrationNumber: string;
-  location: string;
-}
+// УДАЛИТЕ PublicIncident - он не используется и не соответствует бэкенду
+// export interface PublicIncident {
+//   registrationNumber: string;
+//   location: string;
+// }
 
 // Request types
 export interface CreateIncidentRequest {
@@ -50,7 +57,7 @@ export interface CreateIncidentRequest {
   description: string;
   location: string;
   severity: 'low' | 'medium' | 'high';
-  involvedPersons: string[];
+  involvedPersons: string[]; // ID персон, а не полные объекты
 }
 
 export interface UpdateIncidentRequest extends Partial<CreateIncidentRequest> {

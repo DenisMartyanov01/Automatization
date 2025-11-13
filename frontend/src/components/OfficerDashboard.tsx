@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   BarChart3, 
   UserPlus, 
@@ -12,19 +12,95 @@ import { Button } from './ui/button';
 import { IncidentsTab } from './officer/IncidentsTab';
 import { PersonsTab } from './officer/PersonsTab';
 import { StatisticsTab } from './officer/StatisticsTab';
+import { api } from '../lib/api';
 
 interface OfficerDashboardProps {
   onLogout: () => void;
+  user: {
+    id: string;
+    username: string;
+    email?: string;
+    role?: string;
+  } | null;
 }
 
-export function OfficerDashboard({ onLogout }: OfficerDashboardProps) {
+export function OfficerDashboard({ onLogout, user }: OfficerDashboardProps) {
   const [activeTab, setActiveTab] = useState<'incidents' | 'persons' | 'statistics'>('incidents');
   const [showMenu, setShowMenu] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Initialize dashboard data
+  useEffect(() => {
+    const initializeDashboard = async () => {
+      try {
+        // Проверяем наличие пользователя
+        if (!user) {
+          setError('User information not available');
+          setIsLoading(false);
+          return;
+        }
+
+        // Verify user session and load initial data
+        await api.auth.verify();
+        
+        setDataLoaded(true);
+      } catch (error) {
+        console.error('Failed to initialize dashboard:', error);
+        setError('Failed to load dashboard data');
+        // Если session is invalid, trigger logout после показа ошибки
+        setTimeout(() => onLogout(), 3000);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initializeDashboard();
+  }, [onLogout, user]);
 
   const handleTabChange = (tab: 'incidents' | 'persons' | 'statistics') => {
     setActiveTab(tab);
     setShowMenu(false);
   };
+
+  const handleLogout = async () => {
+    try {
+      await api.auth.logout();
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      onLogout();
+    }
+  };
+
+  // Показываем ошибку если есть
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="bg-red-100 p-4 rounded-lg mb-4">
+            <p className="text-red-700">{error}</p>
+            <p className="text-red-600 text-sm mt-2">Redirecting to login...</p>
+          </div>
+          <Button onClick={onLogout} variant="outline">
+            Return to Login Now
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
@@ -37,8 +113,11 @@ export function OfficerDashboard({ onLogout }: OfficerDashboardProps) {
                 <Shield className="w-5 h-5" />
               </div>
               <div>
-                <h1 className="text-white">Emergency Nearby</h1>
-                <p className="text-blue-200">Officer Portal</p>
+                <h1 className="text-white font-semibold">Emergency Nearby</h1>
+                {/* Безопасный доступ к username */}
+                <p className="text-blue-200 text-sm">
+                  Officer Portal • {user?.username || 'Unknown User'}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -85,7 +164,7 @@ export function OfficerDashboard({ onLogout }: OfficerDashboardProps) {
               </button>
               <div className="border-t border-blue-700">
                 <button
-                  onClick={onLogout}
+                  onClick={handleLogout}
                   className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-blue-700"
                 >
                   <LogOut className="w-5 h-5" />
@@ -99,19 +178,28 @@ export function OfficerDashboard({ onLogout }: OfficerDashboardProps) {
 
       {/* Main Content */}
       <main className="px-4 py-4">
-        {activeTab === 'incidents' && <IncidentsTab />}
-        {activeTab === 'persons' && <PersonsTab />}
-        {activeTab === 'statistics' && <StatisticsTab />}
+        {!dataLoaded ? (
+          <div className="flex flex-col items-center justify-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
+            <p className="text-gray-600">Loading data...</p>
+          </div>
+        ) : (
+          <>
+            {activeTab === 'incidents' && <IncidentsTab />}
+            {activeTab === 'persons' && <PersonsTab />}
+            {activeTab === 'statistics' && <StatisticsTab />}
+          </>
+        )}
       </main>
 
       {/* Bottom Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-10">
         <div className="grid grid-cols-3">
           <button
-            onClick={() => setActiveTab('incidents')}
+            onClick={() => handleTabChange('incidents')}
             className={`flex flex-col items-center gap-1 py-3 ${
               activeTab === 'incidents' 
-                ? 'text-blue-600' 
+                ? 'text-blue-600 bg-blue-50' 
                 : 'text-gray-500 active:bg-gray-100'
             }`}
           >
@@ -119,10 +207,10 @@ export function OfficerDashboard({ onLogout }: OfficerDashboardProps) {
             <span className="text-xs">Incidents</span>
           </button>
           <button
-            onClick={() => setActiveTab('persons')}
+            onClick={() => handleTabChange('persons')}
             className={`flex flex-col items-center gap-1 py-3 ${
               activeTab === 'persons' 
-                ? 'text-blue-600' 
+                ? 'text-blue-600 bg-blue-50' 
                 : 'text-gray-500 active:bg-gray-100'
             }`}
           >
@@ -130,10 +218,10 @@ export function OfficerDashboard({ onLogout }: OfficerDashboardProps) {
             <span className="text-xs">Persons</span>
           </button>
           <button
-            onClick={() => setActiveTab('statistics')}
+            onClick={() => handleTabChange('statistics')}
             className={`flex flex-col items-center gap-1 py-3 ${
               activeTab === 'statistics' 
-                ? 'text-blue-600' 
+                ? 'text-blue-600 bg-blue-50' 
                 : 'text-gray-500 active:bg-gray-100'
             }`}
           >

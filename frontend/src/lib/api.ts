@@ -1,18 +1,5 @@
 import { API_BASE_URL, AUTH_ENDPOINTS, ENDPOINTS } from './api.config';
-import type {
-  Person,
-  Incident,
-  Statistics,
-  LoginCredentials,
-  AuthResponse,
-  PublicIncident,
-  CreateIncidentRequest,
-  UpdateIncidentRequest,
-  CreatePersonRequest,
-  UpdatePersonRequest,
-  StatisticsRequest,
-} from './types';
-
+import {LoginCredentials, AuthResponse, Incident, CreateIncidentRequest, CreatePersonRequest, Person, StatisticsRequest, Statistics, UpdateIncidentRequest, UpdatePersonRequest} from './types.ts'
 // Helper function to get auth token from localStorage
 const getAuthToken = (): string | null => {
   return localStorage.getItem('auth_token');
@@ -68,10 +55,6 @@ async function apiRequest<T>(
 // ============================================================================
 
 export const authAPI = {
-  /**
-   * Login with username and password
-   * Returns auth token on success
-   */
   login: async (credentials: LoginCredentials): Promise<AuthResponse> => {
     const response = await apiRequest<AuthResponse>(
       AUTH_ENDPOINTS.LOGIN,
@@ -79,10 +62,9 @@ export const authAPI = {
         method: 'POST',
         body: JSON.stringify(credentials),
       },
-      false // Don't include auth token for login
+      false
     );
 
-    // Store token in localStorage
     if (response.success && response.token) {
       localStorage.setItem('auth_token', response.token);
     }
@@ -90,9 +72,6 @@ export const authAPI = {
     return response;
   },
 
-  /**
-   * Logout current user
-   */
   logout: async (): Promise<void> => {
     try {
       await apiRequest(AUTH_ENDPOINTS.LOGOUT, { method: 'POST' });
@@ -101,9 +80,6 @@ export const authAPI = {
     }
   },
 
-  /**
-   * Verify if current token is valid
-   */
   verify: async (): Promise<boolean> => {
     try {
       await apiRequest(AUTH_ENDPOINTS.VERIFY, { method: 'GET' });
@@ -120,35 +96,20 @@ export const authAPI = {
 // ============================================================================
 
 export const incidentsAPI = {
-  /**
-   * Get all incidents (requires authentication)
-   */
   getAll: async (): Promise<Incident[]> => {
     return apiRequest<Incident[]>(ENDPOINTS.INCIDENTS, { method: 'GET' });
   },
 
-  /**
-   * Get public incident information (no authentication required)
-   * Returns only registration numbers and addresses
-   */
-  getPublic: async (): Promise<PublicIncident[]> => {
-    return apiRequest<PublicIncident[]>(
-      `${ENDPOINTS.INCIDENTS}/public`,
-      { method: 'GET' },
-      false // No auth required
-    );
+  getPublic: async (): Promise<Incident[]> => {
+    return apiRequest<Incident[]>(`${ENDPOINTS.INCIDENTS}/public`, { 
+      method: 'GET' 
+    }, false);
   },
 
-  /**
-   * Get single incident by ID (requires authentication)
-   */
   getById: async (id: string): Promise<Incident> => {
     return apiRequest<Incident>(`${ENDPOINTS.INCIDENTS}/${id}`, { method: 'GET' });
   },
 
-  /**
-   * Create new incident (requires authentication)
-   */
   create: async (data: CreateIncidentRequest): Promise<Incident> => {
     return apiRequest<Incident>(ENDPOINTS.INCIDENTS, {
       method: 'POST',
@@ -156,9 +117,6 @@ export const incidentsAPI = {
     });
   },
 
-  /**
-   * Update existing incident (requires authentication)
-   */
   update: async (id: string, data: Partial<CreateIncidentRequest>): Promise<Incident> => {
     return apiRequest<Incident>(`${ENDPOINTS.INCIDENTS}/${id}`, {
       method: 'PUT',
@@ -166,16 +124,10 @@ export const incidentsAPI = {
     });
   },
 
-  /**
-   * Delete incident (requires authentication)
-   */
   delete: async (id: string): Promise<void> => {
     return apiRequest<void>(`${ENDPOINTS.INCIDENTS}/${id}`, { method: 'DELETE' });
   },
 
-  /**
-   * Get incidents by person ID (requires authentication)
-   */
   getByPersonId: async (personId: string): Promise<Incident[]> => {
     return apiRequest<Incident[]>(`${ENDPOINTS.INCIDENTS}/by-person/${personId}`, {
       method: 'GET',
@@ -188,23 +140,14 @@ export const incidentsAPI = {
 // ============================================================================
 
 export const personsAPI = {
-  /**
-   * Get all persons (requires authentication)
-   */
   getAll: async (): Promise<Person[]> => {
     return apiRequest<Person[]>(ENDPOINTS.PERSONS, { method: 'GET' });
   },
 
-  /**
-   * Get single person by ID (requires authentication)
-   */
   getById: async (id: string): Promise<Person> => {
     return apiRequest<Person>(`${ENDPOINTS.PERSONS}/${id}`, { method: 'GET' });
   },
 
-  /**
-   * Create new person (requires authentication)
-   */
   create: async (data: CreatePersonRequest): Promise<Person> => {
     return apiRequest<Person>(ENDPOINTS.PERSONS, {
       method: 'POST',
@@ -212,9 +155,6 @@ export const personsAPI = {
     });
   },
 
-  /**
-   * Update existing person (requires authentication)
-   */
   update: async (id: string, data: Partial<CreatePersonRequest>): Promise<Person> => {
     return apiRequest<Person>(`${ENDPOINTS.PERSONS}/${id}`, {
       method: 'PUT',
@@ -222,9 +162,6 @@ export const personsAPI = {
     });
   },
 
-  /**
-   * Delete person (requires authentication)
-   */
   delete: async (id: string): Promise<void> => {
     return apiRequest<void>(`${ENDPOINTS.PERSONS}/${id}`, { method: 'DELETE' });
   },
@@ -235,9 +172,6 @@ export const personsAPI = {
 // ============================================================================
 
 export const statisticsAPI = {
-  /**
-   * Get statistics for specified time period (requires authentication)
-   */
   getByPeriod: async (request: StatisticsRequest): Promise<Statistics> => {
     const params = new URLSearchParams({
       start_date: request.startDate,
@@ -249,17 +183,10 @@ export const statisticsAPI = {
     });
   },
 
-  /**
-   * Get overall statistics (requires authentication)
-   */
   getOverall: async (): Promise<Statistics> => {
     return apiRequest<Statistics>(ENDPOINTS.STATISTICS, { method: 'GET' });
   },
 };
-
-// ============================================================================
-// EXPORT ALL APIs
-// ============================================================================
 
 export const api = {
   auth: authAPI,

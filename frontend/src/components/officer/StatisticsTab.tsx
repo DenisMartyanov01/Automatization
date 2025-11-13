@@ -4,11 +4,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui
 import { Label } from '../ui/label';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
-import { mockIncidents, mockPersons } from '../../lib/mockData';
 import { Badge } from '../ui/badge';
 import { api } from '../../lib/api';
-import { toast } from 'sonner@2.0.3';
-import type { Incident, Person } from '../../lib/types';
+import { toast } from 'sonner';
+import type { Incident, Person, Statistics } from '../../lib/types';
 
 export function StatisticsTab() {
   const [dateRange, setDateRange] = useState({
@@ -17,8 +16,9 @@ export function StatisticsTab() {
   });
   const [selectedPersonId, setSelectedPersonId] = useState('');
   const [searchResults, setSearchResults] = useState<any>(null);
-  const [incidents, setIncidents] = useState<Incident[]>(mockIncidents);
-  const [persons, setPersons] = useState<Person[]>(mockPersons);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [persons, setPersons] = useState<Person[]>([]);
+  const [statistics, setStatistics] = useState<Statistics | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   // Fetch data on mount
@@ -26,15 +26,17 @@ export function StatisticsTab() {
     const fetchData = async () => {
       setIsLoading(true);
       try {
-        const [fetchedIncidents, fetchedPersons] = await Promise.all([
+        const [fetchedIncidents, fetchedPersons, fetchedStats] = await Promise.all([
           api.incidents.getAll(),
-          api.persons.getAll()
+          api.persons.getAll(),
+          api.statistics.getOverall()
         ]);
         setIncidents(fetchedIncidents);
         setPersons(fetchedPersons);
+        setStatistics(fetchedStats);
       } catch (error) {
         console.error('Failed to fetch data:', error);
-        // Fallback to mock data (already set in state)
+        toast.error('Failed to load data from server.');
       } finally {
         setIsLoading(false);
       }
@@ -42,6 +44,22 @@ export function StatisticsTab() {
 
     fetchData();
   }, []);
+
+  // Функция для подсчета инцидентов по ролям персон
+  const getIncidentsCountByRole = (role: string): number => {
+    return incidents.filter(incident => {
+      // Для каждого инцидента проверяем, есть ли среди involvedPersons персона с указанной ролью
+      return incident.involvedPersons.some(personId => {
+        const person = persons.find(p => p.id === personId);
+        return person?.role === role;
+      });
+    }).length;
+  };
+
+  // Функция для подсчета персон по ролям
+  const getPersonsCountByRole = (role: string): number => {
+    return persons.filter(person => person.role === role).length;
+  };
 
   const handleDateRangeSearch = async () => {
     if (!dateRange.start || !dateRange.end) {
@@ -51,48 +69,22 @@ export function StatisticsTab() {
 
     setIsLoading(true);
     try {
-      // Try to fetch from API
       const statistics = await api.statistics.getByPeriod({
         startDate: dateRange.start,
         endDate: dateRange.end
       });
 
-      // For now, we'll still use local filtering
-      // In production, the backend should return filtered incidents
-      const start = new Date(dateRange.start);
-      const end = new Date(dateRange.end);
-
-      const filtered = incidents.filter(incident => {
-        const incidentDate = new Date(incident.date);
-        return incidentDate >= start && incidentDate <= end;
-      });
-
+      // Use backend statistics data
       setSearchResults({
         type: 'dateRange',
-        count: filtered.length,
-        incidents: filtered,
+        count: statistics.totalIncidents,
+        statistics: statistics,
         start: dateRange.start,
         end: dateRange.end
       });
     } catch (error) {
       console.error('Failed to fetch statistics:', error);
-      
-      // Fallback: local filtering
-      const start = new Date(dateRange.start);
-      const end = new Date(dateRange.end);
-
-      const filtered = incidents.filter(incident => {
-        const incidentDate = new Date(incident.date);
-        return incidentDate >= start && incidentDate <= end;
-      });
-
-      setSearchResults({
-        type: 'dateRange',
-        count: filtered.length,
-        incidents: filtered,
-        start: dateRange.start,
-        end: dateRange.end
-      });
+      toast.error('Failed to fetch statistics. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -106,7 +98,6 @@ export function StatisticsTab() {
 
     setIsLoading(true);
     try {
-      // Try to fetch from API
       const filtered = await api.incidents.getByPersonId(selectedPersonId);
       const person = persons.find(p => p.id === selectedPersonId);
 
@@ -118,33 +109,19 @@ export function StatisticsTab() {
       });
     } catch (error) {
       console.error('Failed to fetch incidents by person:', error);
-      
-      // Fallback: local filtering
-      const person = persons.find(p => p.id === selectedPersonId);
-      const filtered = incidents.filter(incident => 
-        incident.involvedPersons.includes(selectedPersonId)
-      );
-
-      setSearchResults({
-        type: 'person',
-        count: filtered.length,
-        incidents: filtered,
-        person: person
-      });
+      toast.error('Failed to fetch incidents. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const getTotalIncidents = () => incidents.length;
-  const getTotalPersons = () => persons.length;
-
-  const getIncidentsByRole = (role: string) => {
-    const personsWithRole = persons.filter(p => p.role === role).map(p => p.id);
-    return incidents.filter(incident => 
-      incident.involvedPersons.some(id => personsWithRole.includes(id))
-    ).length;
-  };
+  if (isLoading && !searchResults) {
+    return (
+      <div className="flex justify-center items-center py-8">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -158,7 +135,9 @@ export function StatisticsTab() {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Total Incidents</CardDescription>
-            <CardTitle className="text-gray-900">{getTotalIncidents()}</CardTitle>
+            <CardTitle className="text-gray-900">
+              {statistics?.totalIncidents || incidents.length}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2 text-gray-600">
@@ -171,7 +150,7 @@ export function StatisticsTab() {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Total Persons</CardDescription>
-            <CardTitle className="text-gray-900">{getTotalPersons()}</CardTitle>
+            <CardTitle className="text-gray-900">{persons.length}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2 text-gray-600">
@@ -183,26 +162,62 @@ export function StatisticsTab() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Suspect Cases</CardDescription>
-            <CardTitle className="text-gray-900">{getIncidentsByRole('suspect')}</CardTitle>
+            <CardDescription>Suspect Incidents</CardDescription>
+            <CardTitle className="text-gray-900">
+              {getIncidentsCountByRole('suspect')}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2 text-gray-600">
               <TrendingUp className="w-3.5 h-3.5" />
-              <span>Active</span>
+              <span>{getPersonsCountByRole('suspect')} suspects</span>
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Witness Cases</CardDescription>
-            <CardTitle className="text-gray-900">{getIncidentsByRole('witness')}</CardTitle>
+            <CardDescription>Witness Incidents</CardDescription>
+            <CardTitle className="text-gray-900">
+              {getIncidentsCountByRole('witness')}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2 text-gray-600">
               <User className="w-3.5 h-3.5" />
-              <span>Recorded</span>
+              <span>{getPersonsCountByRole('witness')} witnesses</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Добавим карточку для жертв */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Victim Incidents</CardDescription>
+            <CardTitle className="text-gray-900">
+              {getIncidentsCountByRole('victim')}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2 text-gray-600">
+              <User className="w-3.5 h-3.5" />
+              <span>{getPersonsCountByRole('victim')} victims</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Карточка для отображения распределения по severity */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>High Severity</CardDescription>
+            <CardTitle className="text-gray-900">
+              {statistics?.bySeverity?.high || incidents.filter(i => i.severity === 'high').length}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2 text-gray-600">
+              <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
+              <span>Critical cases</span>
             </div>
           </CardContent>
         </Card>
@@ -236,9 +251,13 @@ export function StatisticsTab() {
                 onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
               />
             </div>
-            <Button onClick={handleDateRangeSearch} className="w-full h-12 gap-2">
+            <Button 
+              onClick={handleDateRangeSearch} 
+              className="w-full h-12 gap-2"
+              disabled={isLoading}
+            >
               <Search className="w-4 h-4" />
-              Search by Date
+              {isLoading ? 'Searching...' : 'Search by Date'}
             </Button>
           </div>
         </CardContent>
@@ -263,14 +282,18 @@ export function StatisticsTab() {
                 <option value="">Choose a person...</option>
                 {persons.map(person => (
                   <option key={person.id} value={person.id}>
-                    {person.name} - {person.role}
+                    {person.name} - {person.role} (Reg. #{person.registration_number})
                   </option>
                 ))}
               </select>
             </div>
-            <Button onClick={handlePersonSearch} className="w-full h-12 gap-2">
+            <Button 
+              onClick={handlePersonSearch} 
+              className="w-full h-12 gap-2"
+              disabled={isLoading}
+            >
               <Search className="w-4 h-4" />
-              Search by Person
+              {isLoading ? 'Searching...' : 'Search by Person'}
             </Button>
           </div>
         </CardContent>
@@ -294,25 +317,74 @@ export function StatisticsTab() {
           <CardContent className="space-y-4">
             <div className="bg-white rounded-lg p-6 text-center">
               <div className="text-blue-600 mb-2">Total Incidents Found</div>
-              <div className="text-gray-900">{searchResults.count}</div>
+              <div className="text-gray-900 text-2xl font-bold">{searchResults.count}</div>
             </div>
 
-            {searchResults.incidents.length > 0 && (
+            {searchResults.type === 'dateRange' && searchResults.statistics && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-white rounded-lg p-3 text-center">
+                    <div className="text-gray-600 text-xs">High Severity</div>
+                    <div className="text-red-600 font-bold">{searchResults.statistics.bySeverity?.high || 0}</div>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 text-center">
+                    <div className="text-gray-600 text-xs">Medium Severity</div>
+                    <div className="text-yellow-600 font-bold">{searchResults.statistics.bySeverity?.medium || 0}</div>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 text-center">
+                    <div className="text-gray-600 text-xs">Low Severity</div>
+                    <div className="text-green-600 font-bold">{searchResults.statistics.bySeverity?.low || 0}</div>
+                  </div>
+                </div>
+                
+                {searchResults.statistics.byType && Object.keys(searchResults.statistics.byType).length > 0 && (
+                  <div>
+                    <div className="text-gray-900 mb-2">Incidents by Type:</div>
+                    <div className="space-y-2">
+                      {Object.entries(searchResults.statistics.byType).map(([type, count]) => (
+                        <div key={type} className="bg-white rounded-lg p-3 flex justify-between items-center">
+                          <span className="text-gray-700 capitalize">{type}</span>
+                          <Badge variant="outline">{count as number}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {searchResults.type === 'person' && searchResults.incidents.length > 0 && (
               <div className="space-y-3">
                 <div className="text-gray-900">Incident Details:</div>
-                {searchResults.incidents.map((incident: any) => (
+                {searchResults.incidents.map((incident: Incident) => (
                   <div key={incident.id} className="bg-white rounded-lg p-3">
                     <div className="flex items-center gap-2 mb-2 flex-wrap">
-                      <span className="text-gray-900">{incident.type}</span>
-                      <Badge variant="outline" className="text-xs">#{incident.registrationNumber}</Badge>
+                      <span className="text-gray-900 font-medium">{incident.type}</span>
+                      <Badge variant="outline" className="text-xs">#{incident.registration_number}</Badge>
+                      <Badge 
+                        className={`text-xs ${
+                          incident.severity === 'high' ? 'bg-red-100 text-red-800' :
+                          incident.severity === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-green-100 text-green-800'
+                        }`}
+                      >
+                        {incident.severity}
+                      </Badge>
                     </div>
                     <div className="text-gray-600 flex items-center gap-2">
                       <Calendar className="w-3.5 h-3.5" />
                       <span>{new Date(incident.date).toLocaleDateString()}</span>
                     </div>
                     <div className="text-gray-600 mt-1 break-words">{incident.location}</div>
+                    <div className="text-gray-600 mt-2 text-sm">{incident.description}</div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {searchResults.count === 0 && (
+              <div className="text-center text-gray-500 py-4">
+                No incidents found for the selected criteria.
               </div>
             )}
           </CardContent>

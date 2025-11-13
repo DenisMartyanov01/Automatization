@@ -8,14 +8,13 @@ import { Label } from '../ui/label';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { mockIncidents, mockPersons } from '../../lib/mockData';
 import { api } from '../../lib/api';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 import type { Incident, Person } from '../../lib/types';
 
 export function IncidentsTab() {
-  const [incidents, setIncidents] = useState<Incident[]>(mockIncidents);
-  const [persons, setPersons] = useState<Person[]>(mockPersons);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [persons, setPersons] = useState<Person[]>([]);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [editingIncident, setEditingIncident] = useState<Incident | null>(null);
   const [expandedIncident, setExpandedIncident] = useState<string | null>(null);
@@ -42,8 +41,7 @@ export function IncidentsTab() {
         setPersons(fetchedPersons);
       } catch (error) {
         console.error('Failed to fetch data:', error);
-        toast.error('Failed to load data. Using offline mode.');
-        // Fallback to mock data (already set in state)
+        toast.error('Failed to load data from server.');
       } finally {
         setIsLoading(false);
       }
@@ -52,6 +50,16 @@ export function IncidentsTab() {
     fetchData();
   }, []);
 
+  // Функция для получения объекта Person по ID
+  const getPersonById = (personId: string): Person | undefined => {
+    return persons.find(person => person.id === personId);
+  };
+
+  // Функция для получения списка персон по массиву ID
+  const getPersonsByIds = (personIds: string[]): Person[] => {
+    return personIds.map(id => getPersonById(id)).filter(Boolean) as Person[];
+  };
+
   const handleOpenSheet = (incident?: Incident) => {
     if (incident) {
       setEditingIncident(incident);
@@ -59,8 +67,8 @@ export function IncidentsTab() {
         type: incident.type,
         description: incident.description,
         location: incident.location,
-        severity: incident.severity,
-        involvedPersons: incident.involvedPersons
+        severity: incident.severity as 'low' | 'medium' | 'high',
+        involvedPersons: incident.involvedPersons // Теперь это массив строк
       });
     } else {
       setEditingIncident(null);
@@ -94,29 +102,7 @@ export function IncidentsTab() {
     } catch (error) {
       console.error('Failed to save incident:', error);
       toast.error('Failed to save incident. Please try again.');
-      
-      // Fallback: save locally
-      if (editingIncident) {
-        setIncidents(incidents.map(inc => 
-          inc.id === editingIncident.id 
-            ? { ...inc, ...formData }
-            : inc
-        ));
-      } else {
-        const newIncident: Incident = {
-          id: `inc-${Date.now()}`,
-          registrationNumber: `RN${Date.now().toString().slice(-6)}`,
-          date: new Date().toISOString(),
-          ...formData
-        };
-        setIncidents([newIncident, ...incidents]);
-      }
-      setIsSheetOpen(false);
     }
-  };
-
-  const getPersonInfo = (personId: string) => {
-    return persons.find(p => p.id === personId);
   };
 
   const getSeverityColor = (severity: string) => {
@@ -144,6 +130,14 @@ export function IncidentsTab() {
   const toggleIncident = (incidentId: string) => {
     setExpandedIncident(expandedIncident === incidentId ? null : incidentId);
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center py-8">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -191,7 +185,7 @@ export function IncidentsTab() {
 
               <div className="space-y-2">
                 <Label htmlFor="severity">Severity</Label>
-                <Select value={formData.severity} onValueChange={(value) => setFormData({ ...formData, severity: value })}>
+                <Select value={formData.severity} onValueChange={(value: 'low' | 'medium' | 'high') => setFormData({ ...formData, severity: value })}>
                   <SelectTrigger className="h-12">
                     <SelectValue />
                   </SelectTrigger>
@@ -228,10 +222,13 @@ export function IncidentsTab() {
                       />
                       <label htmlFor={`person-${person.id}`} className="flex-1 cursor-pointer">
                         <div className="text-gray-900">{person.name}</div>
-                        <div className="text-gray-500">({person.role})</div>
+                        <div className="text-gray-500">({person.role}) - Reg. #{person.registration_number}</div>
                       </label>
                     </div>
                   ))}
+                  {persons.length === 0 && (
+                    <p className="text-gray-500 text-center py-4">No persons available. Add persons first.</p>
+                  )}
                 </div>
               </div>
 
@@ -249,75 +246,91 @@ export function IncidentsTab() {
       </div>
 
       <div className="space-y-3">
-        {incidents.map((incident) => {
-          const isExpanded = expandedIncident === incident.id;
-          return (
-            <Card key={incident.id}>
-              <div
-                onClick={() => toggleIncident(incident.id)}
-                className="cursor-pointer active:bg-gray-50"
+        {incidents.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <p className="text-gray-500">No incidents found</p>
+              <Button 
+                onClick={() => handleOpenSheet()} 
+                className="mt-4 gap-2"
               >
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${getSeverityColor(incident.severity)}`} />
-                        <CardTitle className="text-gray-900 truncate">{incident.type}</CardTitle>
+                <PlusCircle className="w-4 h-4" />
+                Create First Incident
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          incidents.map((incident) => {
+            const isExpanded = expandedIncident === incident.id;
+            // Получаем полные данные персон для отображения
+            const involvedPersonsData = getPersonsByIds(incident.involvedPersons);
+            
+            return (
+              <Card key={incident.id}>
+                <div
+                  onClick={() => toggleIncident(incident.id)}
+                  className="cursor-pointer active:bg-gray-50"
+                >
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${getSeverityColor(incident.severity)}`} />
+                          <CardTitle className="text-gray-900 truncate">{incident.type}</CardTitle>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge variant="outline" className="text-xs">
+                            #{incident.registration_number}
+                          </Badge>
+                          <CardDescription className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3" />
+                            {new Date(incident.date).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </CardDescription>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge variant="outline" className="text-xs">
-                          #{incident.registrationNumber}
-                        </Badge>
-                        <CardDescription className="flex items-center gap-1">
-                          <Calendar className="w-3 h-3" />
-                          {new Date(incident.date).toLocaleDateString('en-US', {
-                            month: 'short',
-                            day: 'numeric'
-                          })}
-                        </CardDescription>
+                      <div className="flex items-center gap-2">
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenSheet(incident);
+                          }}
+                          className="h-8 px-2"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        {isExpanded ? (
+                          <ChevronUp className="w-5 h-5 text-gray-400" />
+                        ) : (
+                          <ChevronDown className="w-5 h-5 text-gray-400" />
+                        )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenSheet(incident);
-                        }}
-                        className="h-8 px-2"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      {isExpanded ? (
-                        <ChevronUp className="w-5 h-5 text-gray-400" />
-                      ) : (
-                        <ChevronDown className="w-5 h-5 text-gray-400" />
-                      )}
-                    </div>
-                  </div>
-                </CardHeader>
+                  </CardHeader>
 
-                {isExpanded && (
-                  <CardContent className="pt-0 space-y-3">
-                    <div className="flex items-start gap-2 text-gray-700">
-                      <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                      <span>{incident.location}</span>
-                    </div>
+                  {isExpanded && (
+                    <CardContent className="pt-0 space-y-3">
+                      <div className="flex items-start gap-2 text-gray-700">
+                        <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                        <span>{incident.location}</span>
+                      </div>
 
-                    <div>
-                      <p className="text-gray-900 mb-1">Description:</p>
-                      <p className="text-gray-600">{incident.description}</p>
-                    </div>
+                      <div>
+                        <p className="text-gray-900 mb-1">Description:</p>
+                        <p className="text-gray-600">{incident.description}</p>
+                      </div>
 
-                    {incident.involvedPersons.length > 0 && (
-                      <div className="border-t pt-3">
-                        <p className="text-gray-900 mb-2">Involved Persons:</p>
-                        <div className="space-y-2">
-                          {incident.involvedPersons.map((personId) => {
-                            const person = getPersonInfo(personId);
-                            if (!person) return null;
-                            return (
+                      {involvedPersonsData.length > 0 && (
+                        <div className="border-t pt-3">
+                          <p className="text-gray-900 mb-2">Involved Persons:</p>
+                          <div className="space-y-2">
+                            {involvedPersonsData.map((person) => (
                               <div key={person.id} className="bg-gray-50 rounded p-3 flex items-center gap-2">
                                 <div className="bg-gray-200 p-1.5 rounded-full">
                                   <User className="w-3.5 h-3.5 text-gray-600" />
@@ -327,20 +340,24 @@ export function IncidentsTab() {
                                     <span className="text-gray-900">{person.name}</span>
                                     <Badge variant="secondary" className="text-xs">{person.role}</Badge>
                                   </div>
-                                  <p className="text-gray-600 truncate">Reg. #{person.registrationNumber}</p>
+                                  <p className="text-gray-600 truncate">Reg. #{person.registration_number}</p>
+                                  <p className="text-gray-600 flex items-start gap-1 mt-1">
+                                    <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                    <span>{person.address}</span>
+                                  </p>
                                 </div>
                               </div>
-                            );
-                          })}
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </CardContent>
-                )}
-              </div>
-            </Card>
-          );
-        })}
+                      )}
+                    </CardContent>
+                  )}
+                </div>
+              </Card>
+            );
+          })
+        )}
       </div>
     </div>
   );

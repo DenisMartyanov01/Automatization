@@ -6,16 +6,17 @@ MINIMAL FASTAPI BACKEND EXAMPLE
 pip install fastapi uvicorn sqlalchemy psycopg2-binary python-jose[cryptography] passlib[bcrypt]
 
 Запуск:
-uvicorn FASTAPI_MINIMAL_EXAMPLE:app --reload --port 8000
+uvicorn main:app --reload --port 8000
 """
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import JSONResponse
 from sqlalchemy import create_engine, Column, String, Text, DateTime, Enum as SQLEnum, Table, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, relationship
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
@@ -65,14 +66,14 @@ incident_persons = Table(
 
 class User(Base):
     __tablename__ = "users"
-    id = Column(String, primary_key=True)
+    id = Column(String, primary_key=True, default=lambda: f"user-{uuid.uuid4()}")
     username = Column(String(100), unique=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
 
 class Person(Base):
     __tablename__ = "persons"
-    id = Column(String, primary_key=True)
-    registration_number = Column(String(50), unique=True, nullable=False)
+    id = Column(String, primary_key=True, default=lambda: f"person-{uuid.uuid4()}")
+    registration_number = Column(String(50), unique=True, nullable=False, default=lambda: f"PR{uuid.uuid4().hex[:6].upper()}")
     name = Column(String(255), nullable=False)
     address = Column(Text, nullable=False)
     role = Column(SQLEnum(RoleEnum), nullable=False)
@@ -82,12 +83,12 @@ class Person(Base):
 
 class Incident(Base):
     __tablename__ = "incidents"
-    id = Column(String, primary_key=True)
-    registration_number = Column(String(50), unique=True, nullable=False)
+    id = Column(String, primary_key=True, default=lambda: f"inc-{uuid.uuid4()}")
+    registration_number = Column(String(50), unique=True, nullable=False, default=lambda: f"RN{uuid.uuid4().hex[:6].upper()}")
     type = Column(String(100), nullable=False)
     description = Column(Text, nullable=False)
     location = Column(Text, nullable=False)
-    date = Column(DateTime, nullable=False)
+    date = Column(DateTime, nullable=False, default=datetime.utcnow)
     severity = Column(SQLEnum(SeverityEnum), nullable=False)
     involved_persons = relationship("Person", secondary=incident_persons, back_populates="incidents")
 
@@ -104,15 +105,16 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     success: bool
-    token: Optional[str] = None
+    user: Optional[dict] = None
     message: Optional[str] = None
+    token: Optional[str] = None
 
 class PersonCreate(BaseModel):
     name: str
     address: str
     role: str
     phone: str
-    email: EmailStr
+    email: str
 
 class PersonResponse(BaseModel):
     id: str
@@ -141,22 +143,35 @@ class IncidentResponse(BaseModel):
     involvedPersons: List[str]
 
 class PublicIncidentResponse(BaseModel):
+    id: str
     registration_number: str
+    type: str
+    description: str
     location: str
+    date: datetime
+    severity: str
+    involvedPersons: List[PersonResponse]
 
 # ============================================================================
 # AUTHENTICATION
 # ============================================================================
 
-SECRET_KEY = "your-secret-123456"
+SECRET_KEY = "secret-key"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-pwd_context = CryptContext(schemes=["sha256_crypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception as e:
+        print(f"Password verification error: {e}")
+        # Fallback для разработки
+        if plain_password == hashed_password:
+            return True
+        return False
 
 def get_password_hash(password):
     return pwd_context.hash(password)
@@ -171,13 +186,17 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ):
-    token = credentials.credentials
     try:
+        token = credentials.credentials
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
             raise HTTPException(status_code=401, detail="Invalid token")
-        return username
+        
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        return user
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
@@ -185,15 +204,18 @@ async def get_current_user(
 # FASTAPI APP
 # ============================================================================
 
-app = FastAPI(title="Emergency Nearby API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+
+app = FastAPI(title="Emergency Nearby API", lifespan=lifespan)
 
 # CORS - ОБЯЗАТЕЛЬНО для работы с фронтэндом
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",  # React dev server
-        "http://localhost:5432",  # Vite dev server
-        # Добавьте ваш production URL здесь
+        "http://localhost:5173",  # Vite dev server
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -205,25 +227,51 @@ app.add_middleware(
 # ============================================================================
 
 @app.post("/api/auth/login", response_model=LoginResponse)
-def login(request: LoginRequest, db: Session = Depends(get_db)):
-    """Вход в систему - возвращает JWT token"""
-    user = db.query(User).filter(User.username == request.username).first()
-    
-    if not user or not verify_password(request.password, user.hashed_password):
-        return LoginResponse(success=False, message="Invalid credentials")
-    
-    token = create_access_token(data={"sub": user.username})
-    return LoginResponse(success=True, token=token)
+async def login(request: LoginRequest, response: Response, db: Session = Depends(get_db)):
+    try:
+        user = db.query(User).filter(User.username == request.username).first()
+        
+        if not user or not verify_password(request.password, user.hashed_password):
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "message": "Incorrect username or password"}
+            )
+        
+        # Создание токена
+        access_token = create_access_token(data={"sub": user.username})
+        
+        return {
+            "success": True, 
+            "user": {
+                "id": user.id,
+                "username": user.username
+            },
+            "token": access_token  # Добавляем токен в ответ
+        }
+        
+    except Exception as e:
+        print(f"Login error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "message": "Internal server error"}
+        )
 
 @app.post("/api/auth/logout")
-def logout(current_user: str = Depends(get_current_user)):
+def logout(response: Response):
     """Выход из системы"""
-    return {"message": "Logged out successfully"}
+    response.delete_cookie("access_token")
+    return {"success": True, "message": "Logged out successfully"}
 
 @app.get("/api/auth/verify")
-def verify_token(current_user: str = Depends(get_current_user)):
+def verify_token(current_user: User = Depends(get_current_user)):
     """Проверка валидности токена"""
-    return {"valid": True, "username": current_user}
+    return {
+        "valid": True, 
+        "user": {
+            "id": current_user.id,
+            "username": current_user.username
+        }
+    }
 
 # ============================================================================
 # PERSONS ENDPOINTS
@@ -231,7 +279,7 @@ def verify_token(current_user: str = Depends(get_current_user)):
 
 @app.get("/api/persons", response_model=List[PersonResponse])
 def get_persons(
-    current_user: str = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Получить всех персон (требует авторизацию)"""
@@ -249,13 +297,11 @@ def get_persons(
 @app.post("/api/persons", response_model=PersonResponse)
 def create_person(
     person: PersonCreate,
-    current_user: str = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Создать новую персону"""
     new_person = Person(
-        id=f"person-{uuid.uuid4()}",
-        registration_number=f"PR{uuid.uuid4().hex[:6].upper()}",
         name=person.name,
         address=person.address,
         role=RoleEnum[person.role],
@@ -280,7 +326,7 @@ def create_person(
 def update_person(
     person_id: str,
     person: PersonCreate,
-    current_user: str = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Обновить персону"""
@@ -315,14 +361,35 @@ def update_person(
 def get_public_incidents(db: Session = Depends(get_db)):
     """Публичная информация об инцидентах (БЕЗ авторизации)"""
     incidents = db.query(Incident).all()
-    return [PublicIncidentResponse(
-        registration_number=inc.registration_number,
-        location=inc.location
-    ) for inc in incidents]
+    result = []
+    for inc in incidents:
+        involved_persons = []
+        for person in inc.involved_persons:
+            involved_persons.append(PersonResponse(
+                id=person.id,
+                registration_number=person.registration_number,
+                name=person.name,
+                address=person.address,
+                role=person.role.value,
+                phone=person.phone,
+                email=person.email
+            ))
+        
+        result.append(PublicIncidentResponse(
+            id=inc.id,
+            registration_number=inc.registration_number,
+            type=inc.type,
+            description=inc.description,
+            location=inc.location,
+            date=inc.date,
+            severity=inc.severity.value,
+            involvedPersons=involved_persons
+        ))
+    return result
 
 @app.get("/api/incidents", response_model=List[IncidentResponse])
 def get_incidents(
-    current_user: str = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Получить все инциденты (требует авторизацию)"""
@@ -341,21 +408,17 @@ def get_incidents(
 @app.post("/api/incidents", response_model=IncidentResponse)
 def create_incident(
     incident: IncidentCreate,
-    current_user: str = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Создать новый инцидент"""
     new_incident = Incident(
-        id=f"inc-{uuid.uuid4()}",
-        registration_number=f"RN{uuid.uuid4().hex[:6].upper()}",
         type=incident.type,
         description=incident.description,
         location=incident.location,
-        date=datetime.utcnow(),
         severity=SeverityEnum[incident.severity]
     )
     
-    # Добавить связанных персон
     for person_id in incident.involvedPersons:
         person = db.query(Person).filter(Person.id == person_id).first()
         if person:
@@ -380,7 +443,7 @@ def create_incident(
 def update_incident(
     incident_id: str,
     incident: IncidentCreate,
-    current_user: str = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Обновить инцидент"""
@@ -393,7 +456,6 @@ def update_incident(
     db_incident.location = incident.location
     db_incident.severity = SeverityEnum[incident.severity]
     
-    # Обновить связанных персон
     db_incident.involved_persons.clear()
     for person_id in incident.involvedPersons:
         person = db.query(Person).filter(Person.id == person_id).first()
@@ -417,7 +479,7 @@ def update_incident(
 @app.get("/api/incidents/by-person/{person_id}", response_model=List[IncidentResponse])
 def get_incidents_by_person(
     person_id: str,
-    current_user: str = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Получить все инциденты для конкретной персоны"""
@@ -444,7 +506,7 @@ def get_incidents_by_person(
 def get_statistics(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    current_user: str = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Получить статистику (опционально за период)"""
@@ -457,22 +519,19 @@ def get_statistics(
     
     incidents = query.all()
     
-    # Подсчёт статистики
     total = len(incidents)
     by_type = {}
     by_severity = {"low": 0, "medium": 0, "high": 0}
     
     for inc in incidents:
-        # По типу
         by_type[inc.type] = by_type.get(inc.type, 0) + 1
-        # По severity
         by_severity[inc.severity.value] += 1
     
     return {
         "totalIncidents": total,
         "byType": by_type,
         "bySeverity": by_severity,
-        "byMonth": []  # Можно добавить группировку по месяцам
+        "byMonth": []
     }
 
 # ============================================================================
@@ -488,64 +547,36 @@ def root():
     }
 
 # ============================================================================
-# СОЗДАНИЕ ТЕСТОВОГО ПОЛЬЗОВАТЕЛЯ
+# CREATE INITIAL USER
 # ============================================================================
 
-def create_test_user():
-    """
-    Запустите эту функцию один раз для создания тестового пользователя:
-    
-    from FASTAPI_MINIMAL_EXAMPLE import create_test_user
-    create_test_user()
-    """
+def create_initial_user():
+    """Создание начального пользователя"""
     db = SessionLocal()
     
-    # Проверить, существует ли пользователь
-    existing = db.query(User).filter(User.username == "officer").first()
-    if existing:
-        print("Пользователь 'officer' уже существует")
+    # Проверяем, существует ли пользователь
+    if db.query(User).filter(User.username == "officer").first():
+        print("User already exists")
+        db.close()
         return
     
-    test_user = User(
-        id=f"user-{uuid.uuid4()}",
+    # Создаем хеш пароля
+    hashed_password = get_password_hash("pass")
+    
+    # Создаем пользователя
+    user = User(
         username="officer",
-        hashed_password=get_password_hash("password123")
+        hashed_password=hashed_password
     )
     
-    db.add(test_user)
+    db.add(user)
     db.commit()
-    print("✅ Создан тестовый пользователь: officer / password123")
     db.close()
+    print("Initial user created successfully")
 
-# Автоматически создать тестового пользователя при запуске
-async def startup():
-    try:
-        create_test_user()
-    except Exception as e:
-        print(f"Ошибка при создании тестового пользователя: {e}")
+create_initial_user()
 
-"""
-============================================================================
-ЗАПУСК:
-============================================================================
+if __name__ == "__main__":
 
-1. Установите PostgreSQL и создайте базу данных:
-   CREATE DATABASE emergency_nearby;
-
-2. Измените DATABASE_URL выше на ваши данные PostgreSQL
-
-3. Установите зависимости:
-   pip install fastapi uvicorn sqlalchemy psycopg2-binary python-jose[cryptography] passlib[bcrypt]
-
-4. Запустите сервер:
-   uvicorn FASTAPI_MINIMAL_EXAMPLE:app --reload --port 8000
-
-5. Откройте в браузере:
-   http://localhost:8000/docs  (Swagger UI)
-
-6. Тестовый пользователь создастся автоматически:
-   Username: officer
-   Password: password123
-
-============================================================================
-"""
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

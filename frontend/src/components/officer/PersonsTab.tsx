@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { PlusCircle, Edit, MapPin, User, Phone, Mail } from 'lucide-react';
+import { PlusCircle, Edit, MapPin, User, Phone, Mail, Calendar, AlertCircle } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
@@ -7,16 +7,17 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { Label } from '../ui/label';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { mockPersons } from '../../lib/mockData';
 import { api } from '../../lib/api';
-import { toast } from 'sonner@2.0.3';
-import type { Person } from '../../lib/types';
+import { toast } from 'sonner';
+import type { Person, Incident } from '../../lib/types';
 
 export function PersonsTab() {
-  const [persons, setPersons] = useState<Person[]>(mockPersons);
+  const [persons, setPersons] = useState<Person[]>([]);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [editingPerson, setEditingPerson] = useState<Person | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [expandedPerson, setExpandedPerson] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -26,24 +27,34 @@ export function PersonsTab() {
     email: ''
   });
 
-  // Fetch persons on mount
+  // Fetch persons and incidents on mount
   useEffect(() => {
-    const fetchPersons = async () => {
+    const fetchData = async () => {
       setIsLoading(true);
       try {
-        const fetchedPersons = await api.persons.getAll();
+        const [fetchedPersons, fetchedIncidents] = await Promise.all([
+          api.persons.getAll(),
+          api.incidents.getAll()
+        ]);
         setPersons(fetchedPersons);
+        setIncidents(fetchedIncidents);
       } catch (error) {
-        console.error('Failed to fetch persons:', error);
-        toast.error('Failed to load persons. Using offline mode.');
-        // Fallback to mock data (already set in state)
+        console.error('Failed to fetch data:', error);
+        toast.error('Failed to load data from server.');
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchPersons();
+    fetchData();
   }, []);
+
+  // Функция для получения инцидентов по ID персоны
+  const getIncidentsByPersonId = (personId: string): Incident[] => {
+    return incidents.filter(incident => 
+      incident.involvedPersons.includes(personId)
+    );
+  };
 
   const handleOpenSheet = (person?: Person) => {
     if (person) {
@@ -51,7 +62,7 @@ export function PersonsTab() {
       setFormData({
         name: person.name,
         address: person.address,
-        role: person.role,
+        role: person.role as 'suspect' | 'witness' | 'victim',
         phone: person.phone,
         email: person.email
       });
@@ -87,23 +98,6 @@ export function PersonsTab() {
     } catch (error) {
       console.error('Failed to save person:', error);
       toast.error('Failed to save person. Please try again.');
-      
-      // Fallback: save locally
-      if (editingPerson) {
-        setPersons(persons.map(p => 
-          p.id === editingPerson.id 
-            ? { ...p, ...formData }
-            : p
-        ));
-      } else {
-        const newPerson: Person = {
-          id: `person-${Date.now()}`,
-          registrationNumber: `PR${Date.now().toString().slice(-6)}`,
-          ...formData
-        };
-        setPersons([newPerson, ...persons]);
-      }
-      setIsSheetOpen(false);
     }
   };
 
@@ -119,6 +113,31 @@ export function PersonsTab() {
         return 'default';
     }
   };
+
+  const getSeverityColor = (severity: string) => {
+    switch (severity) {
+      case 'high':
+        return 'bg-red-500';
+      case 'medium':
+        return 'bg-yellow-500';
+      case 'low':
+        return 'bg-green-500';
+      default:
+        return 'bg-gray-500';
+    }
+  };
+
+  const togglePersonExpansion = (personId: string) => {
+    setExpandedPerson(expandedPerson === personId ? null : personId);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center py-8">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -155,7 +174,7 @@ export function PersonsTab() {
 
               <div className="space-y-2">
                 <Label htmlFor="role">Role</Label>
-                <Select value={formData.role} onValueChange={(value) => setFormData({ ...formData, role: value })}>
+                <Select value={formData.role} onValueChange={(value: 'suspect' | 'witness' | 'victim') => setFormData({ ...formData, role: value })}>
                   <SelectTrigger className="h-12">
                     <SelectValue />
                   </SelectTrigger>
@@ -215,45 +234,127 @@ export function PersonsTab() {
       </div>
 
       <div className="space-y-3">
-        {persons.map((person) => (
-          <Card key={person.id}>
-            <CardHeader>
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-start gap-3 flex-1 min-w-0">
-                  <div className="bg-blue-100 p-2.5 rounded-full flex-shrink-0">
-                    <User className="w-4 h-4 text-blue-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <CardTitle className="text-gray-900 truncate">{person.name}</CardTitle>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <Badge variant={getRoleBadgeVariant(person.role)} className="text-xs">
-                        {person.role.charAt(0).toUpperCase() + person.role.slice(1)}
-                      </Badge>
-                      <Badge variant="outline" className="text-xs">#{person.registrationNumber}</Badge>
-                    </div>
-                  </div>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => handleOpenSheet(person)} className="h-8 px-2">
-                  <Edit className="w-4 h-4" />
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-2.5">
-              <div className="flex items-start gap-2 text-gray-700">
-                <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                <span className="break-words">{person.address}</span>
-              </div>
-              <div className="flex items-center gap-2 text-gray-700">
-                <Phone className="w-4 h-4 flex-shrink-0" />
-                <span>{person.phone}</span>
-              </div>
-              <div className="flex items-center gap-2 text-gray-700">
-                <Mail className="w-4 h-4 flex-shrink-0" />
-                <span className="break-all">{person.email}</span>
-              </div>
+        {persons.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <p className="text-gray-500">No persons found</p>
+              <Button 
+                onClick={() => handleOpenSheet()} 
+                className="mt-4 gap-2"
+              >
+                <PlusCircle className="w-4 h-4" />
+                Create First Person
+              </Button>
             </CardContent>
           </Card>
-        ))}
+        ) : (
+          persons.map((person) => {
+            const personIncidents = getIncidentsByPersonId(person.id);
+            const isExpanded = expandedPerson === person.id;
+            
+            return (
+              <Card key={person.id}>
+                <div
+                  onClick={() => togglePersonExpansion(person.id)}
+                  className="cursor-pointer active:bg-gray-50"
+                >
+                  <CardHeader>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-3 flex-1 min-w-0">
+                        <div className="bg-blue-100 p-2.5 rounded-full flex-shrink-0">
+                          <User className="w-4 h-4 text-blue-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <CardTitle className="text-gray-900 truncate">{person.name}</CardTitle>
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <Badge variant={getRoleBadgeVariant(person.role)} className="text-xs">
+                              {person.role.charAt(0).toUpperCase() + person.role.slice(1)}
+                            </Badge>
+                            <Badge variant="outline" className="text-xs">#{person.registration_number}</Badge>
+                            {personIncidents.length > 0 && (
+                              <Badge variant="secondary" className="text-xs">
+                                {personIncidents.length} incident(s)
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenSheet(person);
+                        }} 
+                        className="h-8 px-2"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  
+                  {isExpanded && (
+                    <CardContent className="space-y-4 pt-0">
+                      <div className="space-y-2.5">
+                        <div className="flex items-start gap-2 text-gray-700">
+                          <MapPin className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                          <span className="break-words">{person.address}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-gray-700">
+                          <Phone className="w-4 h-4 flex-shrink-0" />
+                          <span>{person.phone}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-gray-700">
+                          <Mail className="w-4 h-4 flex-shrink-0" />
+                          <span className="break-all">{person.email}</span>
+                        </div>
+                      </div>
+
+                      {personIncidents.length > 0 && (
+                        <div className="border-t pt-4">
+                          <div className="flex items-center gap-2 mb-3">
+                            <AlertCircle className="w-4 h-4 text-gray-600" />
+                            <h3 className="text-gray-900 font-medium">Involved in Incidents</h3>
+                          </div>
+                          <div className="space-y-2">
+                            {personIncidents.map((incident) => (
+                              <div key={incident.id} className="bg-gray-50 rounded-lg p-3 border">
+                                <div className="flex items-start gap-2 mb-2">
+                                  <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${getSeverityColor(incident.severity)}`} />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="font-medium text-gray-900">{incident.type}</span>
+                                      <Badge variant="outline" className="text-xs">
+                                        #{incident.registration_number}
+                                      </Badge>
+                                    </div>
+                                    <div className="flex items-center gap-1 text-gray-500 text-sm mt-1">
+                                      <Calendar className="w-3 h-3" />
+                                      {new Date(incident.date).toLocaleDateString('en-US', {
+                                        month: 'short',
+                                        day: 'numeric',
+                                        year: 'numeric'
+                                      })}
+                                    </div>
+                                  </div>
+                                </div>
+                                <p className="text-gray-600 text-sm">{incident.description}</p>
+                                <div className="flex items-start gap-1 text-gray-500 text-sm mt-2">
+                                  <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                  <span>{incident.location}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  )}
+                </div>
+              </Card>
+            );
+          })
+        )}
       </div>
     </div>
   );

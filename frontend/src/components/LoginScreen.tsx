@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Shield, X, Lock, User as UserIcon } from 'lucide-react';
+import { Shield, X, Lock, User as UserIcon, AlertCircle, Loader2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -7,9 +7,11 @@ import { Label } from './ui/label';
 interface LoginScreenProps {
   onLogin: (username: string, password: string) => void;
   onClose: () => void;
+  isLoading?: boolean;
+  error?: string | null;
 }
 
-export function LoginScreen({ onLogin, onClose }: LoginScreenProps) {
+export function LoginScreen({ onLogin, onClose, isLoading = false, error = null }: LoginScreenProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
 
@@ -27,6 +29,7 @@ export function LoginScreen({ onLogin, onClose }: LoginScreenProps) {
           onClick={onClose}
           className="absolute top-4 right-4 z-10 text-gray-400 hover:text-gray-600 active:text-gray-800 p-2 rounded-full hover:bg-gray-100"
           aria-label="Close"
+          disabled={isLoading}
         >
           <X className="w-6 h-6" />
         </button>
@@ -39,6 +42,14 @@ export function LoginScreen({ onLogin, onClose }: LoginScreenProps) {
             <h1 className="text-blue-900 mb-2 text-center">Emergency Nearby</h1>
             <p className="text-gray-600 text-center">Police Officer Login</p>
           </div>
+
+          {/* Отображение ошибки */}
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+              <p className="text-red-700 text-sm">{error}</p>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
@@ -53,6 +64,7 @@ export function LoginScreen({ onLogin, onClose }: LoginScreenProps) {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   required
+                  disabled={isLoading}
                 />
               </div>
             </div>
@@ -69,12 +81,24 @@ export function LoginScreen({ onLogin, onClose }: LoginScreenProps) {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  disabled={isLoading}
                 />
               </div>
             </div>
 
-            <Button type="submit" className="w-full h-12">
-              Sign In
+            <Button 
+              type="submit" 
+              className="w-full h-12"
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Signing In...
+                </>
+              ) : (
+                'Sign In'
+              )}
             </Button>
           </form>
 
