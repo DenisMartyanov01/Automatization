@@ -18,17 +18,33 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, relationship
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 import enum
 import uuid
-
+import os
+from sqlalchemy.orm import declarative_base
 # ============================================================================
 # DATABASE SETUP
 # ============================================================================
 
-# ИЗМЕНИТЕ на ваши данные PostgreSQL
+
+# Database configuration
+if os.getenv("TESTING"):
+    # Use SQLite for testing
+    SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
+    engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    # Use PostgreSQL for production/development
+    SQLALCHEMY_DATABASE_URL = "postgresql://username:password@postgres/dbname"
+    engine = create_engine(SQLALCHEMY_DATABASE_URL)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()  # Now using the correct import
+
+
+
 DATABASE_URL = "postgresql://postgres:123@postgres:5432/MainBD"
 
 engine = create_engine(DATABASE_URL)
@@ -88,12 +104,14 @@ class Incident(Base):
     type = Column(String(100), nullable=False)
     description = Column(Text, nullable=False)
     location = Column(Text, nullable=False)
-    date = Column(DateTime, nullable=False, default=datetime.utcnow)
+    date = Column(DateTime, nullable=False, default=datetime.now(timezone.utc))
     severity = Column(SQLEnum(SeverityEnum), nullable=False)
     involved_persons = relationship("Person", secondary=incident_persons, back_populates="incidents")
 
 # Create all tables
-Base.metadata.create_all(bind=engine)
+if not os.getenv("TESTING"):
+    Base.metadata.create_all(bind=engine)
+
 
 # ============================================================================
 # PYDANTIC SCHEMAS (Request/Response Models)
@@ -156,12 +174,28 @@ class PublicIncidentResponse(BaseModel):
 # AUTHENTICATION
 # ============================================================================
 
-SECRET_KEY = "secret-key"
+SECRET_KEY = "your-secret-key-here"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
+
+def validate_email(email: str) -> bool:
+    """Простая валидация email"""
+    import re
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(pattern, email) is not None
+
+# В main.py - обновите функцию validate_phone
+def validate_phone(phone: str) -> bool:
+    """Простая валидация телефона"""
+    import re
+    # Удаляем все пробелы и дефисы
+    cleaned = phone.replace(" ", "").replace("-", "")
+    # Проверяем международный формат: + и 10-15 цифр
+    pattern = r'^\+\d{10,15}$'
+    return re.match(pattern, cleaned) is not None
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     try:
@@ -178,7 +212,7 @@ def get_password_hash(password):
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -300,7 +334,23 @@ def create_person(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Создать новую персону"""
+    """Создать новую персону с проверкой email и телефона"""
+    
+    # Проверка email
+    if not validate_email(person.email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid email format"
+        )
+    
+    # Проверка телефона
+    if not validate_phone(person.phone):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid phone format. Must be in international format: +1234567890"
+        )
+    
+    # Если проверки пройдены, создаем персону
     new_person = Person(
         name=person.name,
         address=person.address,
@@ -329,7 +379,22 @@ def update_person(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Обновить персону"""
+    """Обновить персону с проверкой email и телефона"""
+    
+    # Проверка email
+    if not validate_email(person.email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid email format"
+        )
+    
+    # Проверка телефона
+    if not validate_phone(person.phone):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid phone format. Must be in international format: +1234567890"
+        )
+    
     db_person = db.query(Person).filter(Person.id == person_id).first()
     if not db_person:
         raise HTTPException(status_code=404, detail="Person not found")
