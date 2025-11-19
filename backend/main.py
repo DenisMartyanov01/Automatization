@@ -639,7 +639,7 @@ def create_initial_user():
     db.close()
     print("Initial user created successfully")
 
-create_initial_user()
+# create_initial_user()
 
 if __name__ == "__main__":
 
