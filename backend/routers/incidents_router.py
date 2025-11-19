@@ -91,17 +91,17 @@ def get_incidents_by_person(
         raise HTTPException(status_code=404, detail="Person not found")
     
     result = []
-    # for inc in person.incidents:
-    #     incident_dict = {
-    #         "id": inc.id,
-    #         "registration_number": inc.registration_number,
-    #         "type": inc.type,
-    #         "description": inc.description,
-    #         "location": inc.location,
-    #         "date": inc.date,
-    #         "severity": inc.severity.value,
-    #         "involvedPersons": [p.id for p in inc.involved_persons]
-    #     }
-    #     result.append(incident_dict)
+    for inc in person.incidents:
+        incident_dict = {
+            "id": inc.id,
+            "registration_number": inc.registration_number,
+            "type": inc.type,
+            "description": inc.description,
+            "location": inc.location,
+            "date": inc.date,
+            "severity": inc.severity.value,
+            "involvedPersons": [p.id for p in inc.involved_persons]
+        }
+        result.append(incident_dict)
     
     return result

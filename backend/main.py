@@ -184,8 +184,10 @@ security = HTTPBearer()
 def validate_email(email: str) -> bool:
     """Простая валидация email"""
     import re
-    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    # pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    pattern = r''
     return re.match(pattern, email) is not None
+
 
 # В main.py - обновите функцию validate_phone
 def validate_phone(phone: str) -> bool:
